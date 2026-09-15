@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Flow">
+  <meta name="description" content="Flow — мобильный тренажёр разговорной импровизации и речи.">
+  <title>Flow — тренажёр речи</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
+
+  <main class="app-shell" id="app">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark">F</div>
+        <div>
+          <div class="brand">FLOW</div>
+          <div class="brand-sub">тренажёр речи</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn hidden" id="installBtn" type="button" aria-label="Установить приложение" title="Установить приложение">↓</button>
+        <button class="icon-btn" id="settingsBtn" type="button" aria-label="Настройки" title="Настройки">⚙</button>
+      </div>
+    </header>
+
+    <section class="progress-wrap" aria-label="Прогресс тренировки">
+      <div class="progress-meta">
+        <span id="progressText">Тренировка не начата</span>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="overallProgress"></div></div>
+    </section>
+
+    <section class="hero-card" id="heroCard">
+      <div class="exercise-head">
+        <div>
+          <div class="eyebrow" id="exerciseType">5 УПРАЖНЕНИЙ ПО ПОРЯДКУ</div>
+          <h1 id="exerciseName">Готов начать?</h1>
+        </div>
+        <div class="step-pill" id="stepPill">0 / 5</div>
+      </div>
+
+      <div class="timer-zone">
+        <div class="timer-ring" id="timerRing" style="--p:0">
+          <div class="timer-inner">
+            <div class="timer" id="timer">25:00</div>
+            <div class="timer-caption" id="timerCaption">вся тренировка</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stage-progress"><div id="stageProgress"></div></div>
+
+      <div class="task-panel">
+        <div class="task-kicker" id="taskKicker">КАК ЭТО РАБОТАЕТ</div>
+        <div class="task" id="taskText">Нажми «Начать тренировку» — дальше программа сама проведёт тебя через все пять упражнений.</div>
+        <div class="chips" id="wordChips"></div>
+        <div class="extra" id="extraText"></div>
+      </div>
+
+      <div class="focus-box">
+        <span class="focus-dot"></span>
+        <div id="focusText">Говори вслух и не ищи идеальную формулировку. Цель — скорость, гибкость и уверенность.</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-primary btn-wide" id="startBtn" type="button">Начать тренировку</button>
+        <button class="btn btn-secondary hidden" id="pauseBtn" type="button">Пауза</button>
+        <button class="btn btn-secondary hidden" id="refreshBtn" type="button">Другая тема</button>
+        <button class="btn btn-ghost hidden" id="nextBtn" type="button">Следующее →</button>
+      </div>
+    </section>
+
+    <section class="stats-grid" id="statsGrid">
+      <article class="mini-card"><span>Тренировок</span><strong id="sessionsStat">0</strong></article>
+      <article class="mini-card"><span>Минут практики</span><strong id="minutesStat">0</strong></article>
+      <article class="mini-card"><span>Серия дней</span><strong id="streakStat">0</strong></article>
+    </section>
+
+    <section class="bank-card">
+      <div class="bank-title">Банк заданий</div>
+      <div class="bank-grid" id="bankGrid"></div>
+    </section>
+
+    <footer class="footer">Работает прямо в браузере и офлайн после первого открытия.</footer>
+  </main>
+
+  <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div><div class="eyebrow">ПЕРСОНАЛИЗАЦИЯ</div><h2 id="settingsTitle">Настройки тренировки</h2></div>
+        <button class="icon-btn" id="closeSettings" type="button" aria-label="Закрыть">×</button>
+      </div>
+
+      <div class="settings-list">
+        <label class="setting-row"><span><b>Быстрый ответ</b><small>секунд на вопрос</small></span><input id="quickSeconds" type="number" min="15" max="120" step="5"></label>
+        <label class="setting-row"><span><b>Количество вопросов</b><small>в первом упражнении</small></span><input id="quickCount" type="number" min="3" max="20" step="1"></label>
+        <label class="setting-row"><span><b>Запретное слово</b><small>минут</small></span><input id="forbiddenMinutes" type="number" min="1" max="15" step="1"></label>
+        <label class="setting-row"><span><b>Случайный поворот</b><small>минут</small></span><input id="storyMinutes" type="number" min="1" max="15" step="1"></label>
+        <label class="setting-row"><span><b>Новый поворот</b><small>каждые N секунд</small></span><input id="twistInterval" type="number" min="20" max="180" step="10"></label>
+        <label class="setting-row"><span><b>Защити абсурд</b><small>минут</small></span><input id="absurdMinutes" type="number" min="1" max="15" step="1"></label>
+        <label class="setting-row"><span><b>Сделай интересной</b><small>минут</small></span><input id="boringMinutes" type="number" min="1" max="15" step="1"></label>
+        <label class="toggle-row"><span><b>Звуковые сигналы</b><small>предупреждение и конец этапа</small></span><input id="soundToggle" type="checkbox"><i></i></label>
+        <label class="toggle-row"><span><b>Не гасить экран</b><small>если браузер поддерживает</small></span><input id="wakeToggle" type="checkbox"><i></i></label>
+      </div>
+
+      <div class="preset-row">
+        <button class="chip-btn" data-preset="short" type="button">≈ 15 мин</button>
+        <button class="chip-btn" data-preset="normal" type="button">≈ 25 мин</button>
+        <button class="chip-btn" data-preset="long" type="button">≈ 40 мин</button>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="resetSettings" type="button">По умолчанию</button>
+        <button class="btn btn-primary" id="saveSettings" type="button">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
