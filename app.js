@@ -17,7 +17,7 @@
     resetSettings: $('resetSettings'), quickSeconds: $('quickSeconds'), quickCount: $('quickCount'),
     forbiddenMinutes: $('forbiddenMinutes'), storyMinutes: $('storyMinutes'), twistInterval: $('twistInterval'),
     absurdMinutes: $('absurdMinutes'), boringMinutes: $('boringMinutes'), soundToggle: $('soundToggle'),
-    wakeToggle: $('wakeToggle'), toast: $('toast')
+    wakeToggle: $('wakeToggle'), resetTopicHistory: $('resetTopicHistory'), toast: $('toast')
   };
 
   const EXERCISES = [
@@ -40,6 +40,15 @@
     wakeLock: true
   };
 
+  const USED_DEFAULTS = {
+    quick: [],
+    forbidden: [],
+    storyStarts: [],
+    storyTwists: [],
+    absurd: [],
+    boring: []
+  };
+
   const PRESETS = {
     short: { quickSeconds: 25, quickCount: 6, forbiddenMinutes: 3, storyMinutes: 3, twistInterval: 45, absurdMinutes: 3, boringMinutes: 3 },
     normal: { quickSeconds: 35, quickCount: 8, forbiddenMinutes: 5, storyMinutes: 5, twistInterval: 60, absurdMinutes: 5, boringMinutes: 5 },
@@ -49,6 +58,7 @@
   const state = {
     settings: loadJSON('flow.settings', DEFAULTS),
     stats: loadJSON('flow.stats', { sessions: 0, minutes: 0, streak: 0, lastDate: null }),
+    used: loadUsedHistory(),
     running: false,
     paused: false,
     exerciseIndex: 0,
@@ -56,6 +66,7 @@
     quickQueue: [],
     storyTwists: [],
     storyTwistIndex: 0,
+    storyTwistsShown: [],
     nextTwistAt: 0,
     currentStoryStart: '',
     timerId: null,
@@ -79,6 +90,99 @@
 
   function saveJSON(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+  }
+
+  function loadUsedHistory() {
+    try {
+      const raw = localStorage.getItem('flow.used.v1');
+      if (!raw) return JSON.parse(JSON.stringify(USED_DEFAULTS));
+      const parsed = JSON.parse(raw);
+      const clean = {};
+      Object.keys(USED_DEFAULTS).forEach(key => {
+        clean[key] = Array.isArray(parsed?.[key]) ? parsed[key] : [];
+      });
+      return clean;
+    } catch (_) {
+      return JSON.parse(JSON.stringify(USED_DEFAULTS));
+    }
+  }
+
+  function saveUsedHistory() {
+    saveJSON('flow.used.v1', state.used);
+  }
+
+  function itemKey(item) {
+    const text = JSON.stringify(item);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${(hash >>> 0).toString(36)}-${text.length}`;
+  }
+
+  function resetUsedBank(bank, notify = false) {
+    state.used[bank] = [];
+    saveUsedHistory();
+    if (notify) toast('Все задания этого раздела пройдены — начинаем новый круг', 3200);
+  }
+
+  function remainingCount(bank, items) {
+    const used = new Set(state.used[bank] || []);
+    return items.reduce((n, item) => n + (used.has(itemKey(item)) ? 0 : 1), 0);
+  }
+
+  function markUsed(bank, item, render = true) {
+    if (item == null) return;
+    const key = itemKey(item);
+    if (!state.used[bank].includes(key)) state.used[bank].push(key);
+    saveUsedHistory();
+    if (render) renderBank();
+  }
+
+  function markManyUsed(bank, items) {
+    let changed = false;
+    const list = state.used[bank];
+    const set = new Set(list);
+    items.forEach(item => {
+      if (item == null) return;
+      const key = itemKey(item);
+      if (!set.has(key)) { list.push(key); set.add(key); changed = true; }
+    });
+    if (changed) {
+      saveUsedHistory();
+      renderBank();
+    }
+  }
+
+  function pickUnused(bank, items, avoid = null, extraExclude = []) {
+    if (!items.length) return null;
+    const excluded = new Set(extraExclude.map(itemKey));
+    if (avoid != null) excluded.add(itemKey(avoid));
+    let used = new Set(state.used[bank] || []);
+    let pool = items.filter(item => !used.has(itemKey(item)) && !excluded.has(itemKey(item)));
+    if (!pool.length) {
+      resetUsedBank(bank, true);
+      used = new Set();
+      pool = items.filter(item => !excluded.has(itemKey(item)));
+    }
+    if (!pool.length) pool = items;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function buildUnusedQueue(bank, items, count) {
+    const result = [];
+    for (let i = 0; i < count; i++) {
+      result.push(pickUnused(bank, items, null, result));
+    }
+    return result;
+  }
+
+  function resetAllUsedHistory() {
+    state.used = JSON.parse(JSON.stringify(USED_DEFAULTS));
+    saveUsedHistory();
+    renderBank();
+    toast('История пройденных тем очищена');
   }
 
   function clamp(n, min, max) {
@@ -169,7 +273,7 @@
     ui.taskKicker.textContent = 'КАК ЭТО РАБОТАЕТ';
     ui.taskText.textContent = 'Нажми «Начать тренировку» — дальше программа сама проведёт тебя через все пять упражнений.';
     setChips([]);
-    ui.extraText.textContent = `Примерная длительность: ${Math.round(total / 60)} мин. Все задания выбираются случайно и меняются при каждом запуске.`;
+    ui.extraText.textContent = `Примерная длительность: ${Math.round(total / 60)} мин. Пройденные задания больше не повторяются, пока не закончится весь соответствующий банк.`;
     ui.focusText.textContent = 'Говори вслух и не ищи идеальную формулировку. Цель — скорость, гибкость и уверенность.';
     setControls('idle');
     renderStats();
@@ -181,7 +285,7 @@
     state.paused = false;
     state.exerciseIndex = 0;
     state.quickIndex = 0;
-    state.quickQueue = shuffle(DATA.QUICK_QUESTIONS).slice(0, state.settings.quickCount);
+    state.quickQueue = buildUnusedQueue('quick', DATA.QUICK_QUESTIONS, state.settings.quickCount);
     setControls('running');
     ui.pauseBtn.textContent = 'Пауза';
     if (state.settings.wakeLock) requestWakeLock();
@@ -213,7 +317,8 @@
   function startQuickQuestion(refresh) {
     if (refresh) {
       const current = state.quickQueue[state.quickIndex];
-      state.quickQueue[state.quickIndex] = randomItem(DATA.QUICK_QUESTIONS, current);
+      const otherQueued = state.quickQueue.filter((_, i) => i !== state.quickIndex);
+      state.quickQueue[state.quickIndex] = pickUnused('quick', DATA.QUICK_QUESTIONS, current, otherQueued);
     }
     const question = state.quickQueue[state.quickIndex];
     ui.taskKicker.textContent = `ВОПРОС ${state.quickIndex + 1} ИЗ ${state.quickQueue.length}`;
@@ -225,6 +330,7 @@
   }
 
   function advanceQuick() {
+    markUsed('quick', state.quickQueue[state.quickIndex]);
     beep('finish');
     state.quickIndex += 1;
     if (state.quickIndex < state.quickQueue.length) {
@@ -236,32 +342,45 @@
 
   function startForbidden(refresh) {
     const current = refresh ? state.currentForbidden : null;
-    state.currentForbidden = randomItem(DATA.FORBIDDEN_WORD_TASKS, current);
+    state.currentForbidden = pickUnused('forbidden', DATA.FORBIDDEN_WORD_TASKS, current);
     const [topic, words] = state.currentForbidden;
     ui.taskKicker.textContent = 'ТЕМА';
     ui.taskText.textContent = topic;
     setChips(words);
     ui.extraText.textContent = 'Эти слова нельзя произносить. Если слово почти вырвалось — сразу переформулируй мысль.';
     ui.timerCaption.textContent = 'до следующего упражнения';
-    startTimer(state.settings.forbiddenMinutes * 60, () => { beep('finish'); advanceExercise(); });
+    startTimer(state.settings.forbiddenMinutes * 60, () => {
+      markUsed('forbidden', state.currentForbidden);
+      beep('finish');
+      advanceExercise();
+    });
   }
 
   function startStory(refresh) {
-    state.currentStoryStart = randomItem(DATA.STORY_STARTS, refresh ? state.currentStoryStart : null);
-    state.storyTwists = shuffle(DATA.STORY_TWISTS);
+    state.currentStoryStart = pickUnused('storyStarts', DATA.STORY_STARTS, refresh ? state.currentStoryStart : null);
+    const twistCount = Math.max(3, Math.ceil(state.settings.storyMinutes * 60 / state.settings.twistInterval) + 2);
+    state.storyTwists = buildUnusedQueue('storyTwists', DATA.STORY_TWISTS, twistCount);
     state.storyTwistIndex = 0;
+    state.storyTwistsShown = [];
     state.nextTwistAt = state.settings.twistInterval;
     ui.taskKicker.textContent = 'НАЧАЛО ИСТОРИИ';
     ui.taskText.textContent = state.currentStoryStart;
     setChips([]);
     ui.extraText.textContent = `Начинай рассказ. Новый поворот появится примерно каждые ${state.settings.twistInterval} сек.`;
     ui.timerCaption.textContent = 'история + повороты';
-    startTimer(state.settings.storyMinutes * 60, () => { beep('finish'); advanceExercise(); });
+    startTimer(state.settings.storyMinutes * 60, () => {
+      markUsed('storyStarts', state.currentStoryStart, false);
+      markManyUsed('storyTwists', state.storyTwistsShown);
+      renderBank();
+      beep('finish');
+      advanceExercise();
+    });
   }
 
   function showStoryTwist(elapsedSec) {
     const twist = state.storyTwists[state.storyTwistIndex % state.storyTwists.length];
     state.storyTwistIndex += 1;
+    state.storyTwistsShown.push(twist);
     while (state.nextTwistAt <= elapsedSec) state.nextTwistAt += state.settings.twistInterval;
     beep('normal');
     ui.taskKicker.textContent = `ПОВОРОТ ${state.storyTwistIndex}`;
@@ -271,23 +390,31 @@
   }
 
   function startAbsurd(refresh) {
-    state.currentAbsurd = randomItem(DATA.ABSURD_POSITIONS, refresh ? state.currentAbsurd : null);
+    state.currentAbsurd = pickUnused('absurd', DATA.ABSURD_POSITIONS, refresh ? state.currentAbsurd : null);
     ui.taskKicker.textContent = 'ТВОЯ ПОЗИЦИЯ';
     ui.taskText.textContent = state.currentAbsurd;
     setChips([]);
     ui.extraText.textContent = 'Защищай позицию уверенно: минимум три аргумента, пример и ответ на возможное возражение.';
     ui.timerCaption.textContent = 'до следующего упражнения';
-    startTimer(state.settings.absurdMinutes * 60, () => { beep('finish'); advanceExercise(); });
+    startTimer(state.settings.absurdMinutes * 60, () => {
+      markUsed('absurd', state.currentAbsurd);
+      beep('finish');
+      advanceExercise();
+    });
   }
 
   function startBoring(refresh) {
-    state.currentBoring = randomItem(DATA.BORING_SITUATIONS, refresh ? state.currentBoring : null);
+    state.currentBoring = pickUnused('boring', DATA.BORING_SITUATIONS, refresh ? state.currentBoring : null);
     ui.taskKicker.textContent = 'СДЕЛАЙ ЭТО ИНТЕРЕСНЫМ';
     ui.taskText.textContent = state.currentBoring;
     setChips([]);
     ui.extraText.textContent = 'Добавь место, детали, наблюдения, маленькую проблему, диалог или неожиданное завершение.';
     ui.timerCaption.textContent = 'финальное упражнение';
-    startTimer(state.settings.boringMinutes * 60, () => { beep('finish'); finishTraining(); });
+    startTimer(state.settings.boringMinutes * 60, () => {
+      markUsed('boring', state.currentBoring);
+      beep('finish');
+      finishTraining();
+    });
   }
 
   function refreshCurrent() {
@@ -509,14 +636,17 @@
 
   function renderBank() {
     const items = [
-      [DATA.QUICK_QUESTIONS.length, 'быстрых вопросов'],
-      [DATA.FORBIDDEN_WORD_TASKS.length, 'тем без слов'],
-      [DATA.STORY_STARTS.length, 'начал историй'],
-      [DATA.STORY_TWISTS.length, 'поворотов'],
-      [DATA.ABSURD_POSITIONS.length, 'абсурдных позиций'],
-      [DATA.BORING_SITUATIONS.length, 'сюжетов']
+      ['quick', DATA.QUICK_QUESTIONS, 'быстрых вопросов'],
+      ['forbidden', DATA.FORBIDDEN_WORD_TASKS, 'тем без слов'],
+      ['storyStarts', DATA.STORY_STARTS, 'начал историй'],
+      ['storyTwists', DATA.STORY_TWISTS, 'поворотов'],
+      ['absurd', DATA.ABSURD_POSITIONS, 'абсурдных позиций'],
+      ['boring', DATA.BORING_SITUATIONS, 'сюжетов']
     ];
-    ui.bankGrid.innerHTML = items.map(([n, label]) => `<div class="bank-item"><strong>${n}</strong><span>${label}</span></div>`).join('');
+    ui.bankGrid.innerHTML = items.map(([bank, list, label]) => {
+      const left = remainingCount(bank, list);
+      return `<div class="bank-item"><strong>${left}/${list.length}</strong><span>${label} осталось</span></div>`;
+    }).join('');
   }
 
   function openSettings() {
@@ -593,6 +723,7 @@
     ui.closeSettings.addEventListener('click', closeSettings);
     ui.saveSettings.addEventListener('click', saveSettingsFromForm);
     ui.resetSettings.addEventListener('click', () => { state.settings = { ...DEFAULTS }; fillSettingsForm(); toast('Значения по умолчанию восстановлены'); });
+    ui.resetTopicHistory.addEventListener('click', resetAllUsedHistory);
     ui.settingsModal.addEventListener('click', (e) => { if (e.target === ui.settingsModal) closeSettings(); });
     ui.installBtn.addEventListener('click', installApp);
     document.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
