@@ -429,13 +429,30 @@
 
   function skipCurrent() {
     if (!state.running) return;
+
+    // Нажатие «Следующее» означает, что пользователь закончил текущее задание раньше таймера.
+    // Поэтому засчитываем его как пройденное. «Другая тема» по-прежнему ничего не списывает.
     if (state.exerciseIndex === 0) {
       stopTimer();
+      markUsed('quick', state.quickQueue[state.quickIndex]);
       state.quickIndex += 1;
       if (state.quickIndex < state.quickQueue.length) startQuickQuestion(false);
       else advanceExercise();
       return;
     }
+
+    if (state.exerciseIndex === 1) {
+      markUsed('forbidden', state.currentForbidden);
+    } else if (state.exerciseIndex === 2) {
+      markUsed('storyStarts', state.currentStoryStart, false);
+      markManyUsed('storyTwists', state.storyTwistsShown);
+      renderBank();
+    } else if (state.exerciseIndex === 3) {
+      markUsed('absurd', state.currentAbsurd);
+    } else if (state.exerciseIndex === 4) {
+      markUsed('boring', state.currentBoring);
+    }
+
     stopTimer();
     advanceExercise();
   }
